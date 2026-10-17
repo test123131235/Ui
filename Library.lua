@@ -30,7 +30,14 @@ local GETH = gethui or function() return CoreGui end
 local LocalPlayer = Players.LocalPlayer
 local GuiInset = GuiService:GetGuiInset().Y
 local Mouse = cRF(LocalPlayer:GetMouse())
-local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local IsMobile = (function()
+    -- same approach as Obsidian: ask Roblox for the platform (works on cloud phones that also report a keyboard)
+    local ok, platform = pcall(function() return UserInputService:GetPlatform() end)
+    if ok and (platform == Enum.Platform.Android or platform == Enum.Platform.IOS) then
+        return true
+    end
+    return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+end)()
 
 local Toggles, Options = {}, {}
 env.Toggles = Toggles
