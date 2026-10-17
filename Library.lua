@@ -4,7 +4,7 @@
     dropdowns, textboxes, image-based colorpicker, pills, watermark, notifications).
     On top of it: Linoria-style API (CreateWindow, Toggles/Options, Idx + Info elements,
     Toggle:AddColorPicker / AddKeyPicker, AddButton, AddLabel, Groupbox aliases) so SaveManager works.
-    Custom cursor (rbxassetid://89116795437925) is restored to the default Roblox cursor on unload.
+    Custom cursor (rbxassetid://92522094773590) is restored to the default Roblox cursor on unload.
 
     MOBILE SCALING (new):
       Library:CreateWindow({ ScreenFill = 0.55 })  -- max share of the screen the window may use (default 0.65 mobile / 0.95 desktop)
@@ -425,6 +425,13 @@ local OriginalMouseIconEnabled = UserInputService.MouseIconEnabled
 
 local CursorGui, CursorLabel
 
+-- remove cursors left behind by older versions of the lib
+pcall(function()
+    for _, g in ipairs(GETH():GetChildren()) do
+        if g:IsA("ScreenGui") and g:FindFirstChild("cursor") then g:Destroy() end
+    end
+end)
+
 -- everything cursor-related is wrapped so it can never stop the library from loading
 local CursorOk, CursorErr = pcall(function()
     if IsMobile then return end -- no custom cursor on touch devices
@@ -477,6 +484,7 @@ if CursorOk and CursorLabel then
             CursorLabel.Position = UDim2.fromOffset(m.X, m.Y)
             CursorLabel.Visible = true
             UserInputService.MouseIconEnabled = false -- keeps the game from re-enabling the default cursor
+            Mouse.Icon = "" -- stops games from forcing their own cursor icon
         end)
     end)
 end
