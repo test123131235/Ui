@@ -1,391 +1,452 @@
---[[
-	Feral UI - Example
-	Showcases every element the library has.
+-- Feral UI showcase: every element + SaveManager (modelled on the Obsidian example)
+-- Replace the repo URL with where you host Library.lua and SaveManager.lua.
 
-	1. Upload Library.lua (and this file) to your GitHub repo.
-	2. Point `Repo` below at your raw URL:  https://raw.githubusercontent.com/<user>/<repo>/<branch>/
-]]
+local repo = "https://raw.githubusercontent.com/test123131235/Ui/main/" -- change to your repo (must end with /)
 
-local Repo = "https://raw.githubusercontent.com/test123131235/Ui/main/"
-local Library = loadstring(game:HttpGet(Repo .. "Library.lua"))()
+local genv = (getgenv and getgenv()) or shared
 
---// Optional: tweak the library before building the window
-Library.Directory = "feral_example"      -- folder used for configs / fonts
-Library.Animation.Time = 0.3             -- global tween time
--- Library:SetTheme("Accent", Color3.fromRGB(255, 80, 80)) -- change colors before or after creating the UI
+-- Downloads + runs a file. Some executors run loadstring chunks asynchronously and return nothing,
+-- so if there is no return value we wait for the file to publish itself on getgenv().
+local function Load(Name, GlobalName)
+	local Old = genv[GlobalName]
 
---// Window ---------------------------------------------------------------------
+	local Source = game:HttpGet(repo .. Name)
+	local Chunk, CompileError = loadstring(Source)
+	assert(Chunk, ("%s failed to compile: %s (check the URL, got %d bytes)"):format(Name, tostring(CompileError), #Source))
+
+	local Result = Chunk()
+
+	if not Result then
+		local Start = os.clock()
+		repeat
+			task.wait()
+			Result = genv[GlobalName]
+		until (Result and Result ~= Old) or os.clock() - Start > 10
+
+		if Result == Old then
+			Result = nil
+		end
+	end
+
+	return Result
+end
+
+local Library = Load("Library.lua", "Library")
+assert(Library, "Library.lua did not load: open the console for an earlier error, and make sure the repo URL is right")
+assert(Library.Elements and Library.Dialog, "Your hosted Library.lua is OLD. Upload the new Library.lua (v1.1.0) and run again")
+
+local SaveManager = Load("SaveManager.lua", "FeralSaveManager")
+assert(SaveManager, "SaveManager.lua did not load: upload SaveManager.lua next to Library.lua")
+
+-- NOTE: Feral has no Options/Toggles tables or :OnChanged. Give an element a `Flag` and either
+--   * pass a `Callback = function(Value) ... end`, or
+--   * read it any time with  Library.Flags.MyFlag   (or Library:Get("MyFlag")).
+-- The returned element objects also have :Set(Value) and .Value.
+local Flags = Library.Flags
+
+--// Window -------------------------------------------------------------------
+
 local Window = Library:Window({
 	Title = "Feral Hub",
-	GameName = "Library Showcase",
-	Logo = "rbxassetid://121449270899000",
-	Keybind = Enum.KeyCode.X,         -- menu key (also changeable in the Settings tab)
-	-- NotificationAnchor = false,    -- hide the draggable "Example" notification
-	-- Watermark = false,             -- hide the watermark
+	GameName = "Example game",
+	-- Logo = "rbxassetid://121449270899000",
+	Keybind = Enum.KeyCode.RightShift, -- menu toggle key (can also be changed with Library:SetMenuKey)
+	Watermark = true,                  -- draggable watermark
+	NotificationAnchor = true,         -- set false to hide the "drag me" notification anchor
 })
 
-Window:SetWatermark("Feral Hub - Example", "rbxassetid://104479390541433")
-
---// Pills (info boxes in the title bar) ----------------------------------------
+-- Little info boxes next to the title
 Window:AddFPSPill()
 Window:AddPingPill()
 Window:AddTimePill()
-Window:AddCoordsPill()
-Window:AddUsernamePill()
+-- Window:AddCoordsPill()
+-- Window:AddUsernamePill()
+-- local Custom = Window:AddCustomPill("Kills", "0", nil, Color3.fromRGB(255, 80, 80))
+-- Custom:SetDescription("12")   -- also :SetTitle, :SetLogo, :SetAccent, :Destroy
 
-local CustomPill = Window:AddCustomPill("Custom", "Hello!", nil, Color3.fromRGB(255, 120, 0))
--- CustomPill:Set("New title", "New description")  |  :SetTitle() :SetDescription() :SetLogo() :SetAccent() :Destroy()
+Window:SetWatermark("Feral Hub | example") -- (Text, Logo)
 
---// Tabs -----------------------------------------------------------------------
-local MainTab = Window:AddTab("Main", "rbxassetid://106606600179475")
-local VisualTab = Window:AddTab("Visuals", "rbxassetid://106606600179475")
-local SettingsTab = Window:AddTab("Settings", "rbxassetid://106606600179475")
+--// Tabs ---------------------------------------------------------------------
+-- Window:AddTab(Name, Icon) -> Tab:AddSubTab(Name) -> SubTab:AddSection(Name, "Left" | "Right")
 
---// Main > Elements --------------------------------------------------------------
+local MainTab = Window:AddTab("Main")
+local UITab = Window:AddTab("UI Settings")
+
 local Elements = MainTab:AddSubTab("Elements")
+local Inputs = MainTab:AddSubTab("Inputs")
 
-local Toggles = Elements:AddSection("Toggles & Sliders", "Left")
+--// Toggles ------------------------------------------------------------------
 
-local MainToggle = Toggles:AddToggle({
-	Title = "Simple toggle",
-	Flag = "simple_toggle",
-	Default = false,
-	Callback = function(Value)
-		print("simple_toggle:", Value)
-	end,
-})
+local Toggles = Elements:AddSection("Toggles", "Left")
 
-Toggles:AddToggle({
-	Title = "Toggle + color",
-	Flag = "color_toggle",
+local MyToggle = Toggles:AddToggle({
+	Title = "This is a toggle",
+	Flag = "MyToggle",
 	Default = true,
 	Callback = function(Value)
-		print("color_toggle:", Value)
+		print("[cb] MyToggle changed to:", Value)
 	end,
-	Color = Color3.fromRGB(255, 60, 60),   -- adds a colorpicker next to the switch
-	ColorFlag = "color_toggle_color",
+})
+
+-- A toggle can have a colorpicker attached (square next to the switch)
+Toggles:AddToggle({
+	Title = "Toggle with color",
+	Flag = "ColorToggle",
+	Default = false,
+	Color = Color3.fromRGB(255, 0, 0),
+	ColorFlag = "ColorToggleColor",
 	ColorCallback = function(Color)
-		print("toggle color:", Color)
+		print("[cb] Toggle color changed:", Color)
 	end,
-})
-
-local Speed = Toggles:AddSlider({
-	Title = "Slider (integer)",
-	Flag = "speed",
-	Min = 0, Max = 100, Default = 50,
-	Suffix = " studs",
 	Callback = function(Value)
-		print("speed:", Value)
+		print("[cb] ColorToggle:", Value)
 	end,
 })
 
-Toggles:AddSlider({
-	Title = "Slider (decimals)",
-	Flag = "smoothness",
-	Min = 0, Max = 1, Default = 0.5, Decimals = 2,
-	Prefix = "x",
+-- This prints "[cb] MyToggle changed to: false"
+MyToggle:Set(false)
+-- Read it any time:
+print("MyToggle is", Flags.MyToggle)
+
+--// Buttons / labels / dividers ------------------------------------------------
+
+local Misc = Elements:AddSection("Buttons & labels", "Left")
+
+local MyButton = Misc:AddButton({
+	Title = "Button",
+	Callback = function()
+		print("You clicked a button!")
+		Library:Notify("Button", "You clicked a button!", 3) -- (Title, Description, Duration)
+	end,
 })
 
-Toggles:AddDivider()
-
-Toggles:AddLabel("Labels wrap automatically and can be changed with :Set().")
-
-local Buttons = Elements:AddSection("Buttons & Keybinds", "Left")
-
-Buttons:AddButton({
-	Title = "Print all flags",
+Misc:AddButton({
+	Title = "Confirm dialog",
 	Callback = function()
-		for Flag, Value in pairs(Library.Flags) do
-			print(Flag, "=", Value)
+		Library:Dialog({
+			Title = "Are you sure?",
+			Description = "This is a confirm dialog. Click outside of it to cancel.",
+			ConfirmText = "Do it",
+			CancelText = "Nope",
+			Destructive = true,
+			Callback = function()
+				Library:Notify("Dialog", "Confirmed!")
+			end,
+			OnCancel = function()
+				Library:Notify("Dialog", "Cancelled")
+			end,
+		})
+	end,
+})
+
+Misc:AddButton({
+	Title = "Rename first button",
+	Callback = function()
+		MyButton:SetText("Renamed!")
+	end,
+})
+
+Misc:AddDivider()
+
+Misc:AddLabel("This is a label")
+Misc:AddLabel({ Title = "This is a dim label which wraps its text when it gets too long.", Dim = true })
+
+local ChangingLabel = Misc:AddLabel("This label gets changed")
+Misc:AddButton({
+	Title = "Change label",
+	Callback = function()
+		ChangingLabel:Set("Changed at " .. os.date("%X"))
+	end,
+})
+
+--// Sliders ---------------------------------------------------------------------
+
+local Sliders = Elements:AddSection("Sliders", "Right")
+
+Sliders:AddSlider({
+	Title = "This is my slider!",
+	Flag = "MySlider",
+	Default = 0,
+	Min = 0,
+	Max = 5,
+	Decimals = 1, -- 0 = whole numbers
+	Callback = function(Value)
+		print("[cb] MySlider was changed! New value:", Value)
+	end,
+})
+
+Sliders:AddSlider({
+	Title = "Slider with prefix / suffix",
+	Flag = "MySlider2",
+	Default = 50,
+	Min = 0,
+	Max = 100,
+	Prefix = "~",
+	Suffix = "%",
+})
+
+local MySlider = Sliders:AddSlider({ Title = "Set from code", Flag = "MySlider3", Min = 0, Max = 10, Default = 2 })
+MySlider:Set(3)
+-- MySlider:Set(7, true) -- second argument = silent (no callback)
+
+--// Colorpickers ------------------------------------------------------------------
+
+local Colors = Elements:AddSection("Colorpickers", "Right")
+
+Colors:AddColorpicker({
+	Title = "Color",
+	Flag = "ColorPicker",
+	Default = Color3.fromRGB(0, 255, 140),
+	Callback = function(Color)
+		print("[cb] Color changed!", Color)
+	end,
+})
+
+Colors:AddButton({
+	Title = "Set color to red",
+	Callback = function()
+		Library:Set("ColorPicker", Color3.fromRGB(255, 0, 0)) -- Library:Set(Flag, Value) works on any flag
+	end,
+})
+
+--// Keybinds ------------------------------------------------------------------------
+
+local Keybinds = Elements:AddSection("Keybinds", "Right")
+
+local Toggle_Keybind = Keybinds:AddKeybind({
+	Title = "Toggle keybind",
+	Flag = "KeyPicker",
+	Mode = "Toggle", -- "Press" (default) | "Toggle" | "Hold"
+	Default = Enum.KeyCode.E, -- KeyCode or its name ("E")
+	Callback = function(State)
+		print("[cb] KeyPicker state:", State)
+	end,
+	ChangedCallback = function(Key) -- Key is a KeyCode, or nil when cleared with Escape
+		print("[cb] KeyPicker rebound to:", Key and Key.Name or "None")
+	end,
+})
+
+local Hold_Keybind = Keybinds:AddKeybind({
+	Title = "Hold keybind",
+	Flag = "HoldKeyPicker",
+	Mode = "Hold",
+	Default = "Q",
+	Callback = function(State)
+		print("[cb] Hold keybind:", State)
+	end,
+})
+
+local KeybindNumber = 0
+Keybinds:AddKeybind({
+	Title = "Press keybind (counter)",
+	Flag = "PressKeyPicker",
+	Mode = "Press",
+	Default = "X",
+	Callback = function()
+		KeybindNumber = KeybindNumber + 1
+		print("[cb] Keybind pressed! Number increased to:", KeybindNumber)
+	end,
+})
+
+-- Checking a keybind's state from a loop (works for Toggle / Hold)
+task.spawn(function()
+	while task.wait(1) do
+		if Library.Unloaded then
+			break
 		end
 
-		Library:Notify("Flags", "Printed to the console (F9)", 3)
-	end,
-})
-
-Buttons:AddButton({
-	Title = "Flip simple toggle from code",
-	Callback = function()
-		MainToggle:Set(not MainToggle.Value) -- :Set(Value, Silent) - Silent skips the callback
-	end,
-})
-
-Buttons:AddKeybind({
-	Title = "Press keybind",
-	Flag = "press_key",
-	Default = Enum.KeyCode.Z,
-	Mode = "Press",
-	Callback = function()
-		Library:Notify("Keybind", "You pressed the Press keybind", 2)
-	end,
-})
-
-Buttons:AddKeybind({
-	Title = "Toggle keybind",
-	Flag = "toggle_key",
-	Default = Enum.KeyCode.C,
-	Mode = "Toggle",
-	Callback = function(State)
-		print("toggle keybind state:", State)
-	end,
-})
-
-Buttons:AddKeybind({
-	Title = "Hold keybind",
-	Flag = "hold_key",
-	Default = Enum.KeyCode.V,
-	Mode = "Hold",
-	Callback = function(State)
-		print("hold keybind:", State and "held" or "released")
-	end,
-})
-
-local Inputs = Elements:AddSection("Inputs", "Right")
-
-Inputs:AddDropdown({
-	Title = "Dropdown",
-	Flag = "single_dropdown",
-	Options = { "Option 1", "Option 2", "Option 3" },
-	Default = "Option 1",
-	Callback = function(Value)
-		print("dropdown:", Value)
-	end,
-})
-
-local Multi = Inputs:AddDropdown({
-	Title = "Multi dropdown",
-	Flag = "multi_dropdown",
-	Multi = true,
-	Options = { "Alpha", "Beta", "Gamma", "Delta" },
-	Default = { "Alpha" },
-	Callback = function(Selected)
-		print("multi dropdown:", table.concat(Selected, ", "))
-	end,
-})
--- Multi:Refresh({ "New", "Options" })  -- replace the options at runtime
-
-Inputs:AddTextbox({
-	Title = "Textbox",
-	Flag = "textbox",
-	Placeholder = "Type something and press enter...",
-	Icon = "rbxassetid://107972121937062",
-	Callback = function(Text)
-		Library:Notify("Textbox", "You typed: " .. Text, 3)
-	end,
-})
-
-local Indicator = Inputs:AddTextIndicator({
-	Title = "Indicator",
-	Flag = "indicator",
-	Default = "Read-only text",
-	Icon = "rbxassetid://102638872351950",
-})
-
-Inputs:AddButton({
-	Title = "Animate indicator",
-	Callback = function()
-		Indicator:Set("Typed out letter by letter!", true) -- second argument = animate
-	end,
-})
-
-Inputs:AddColorpicker({
-	Title = "Colorpicker",
-	Flag = "colorpicker",
-	Default = Color3.fromRGB(0, 170, 255),
-	Callback = function(Color)
-		print("colorpicker:", Color)
-	end,
-})
-
---// Main > Live values -----------------------------------------------------------
-local Live = MainTab:AddSubTab("Live values")
-
-local Readout = Live:AddSection("Reading flags", "Left")
-local SpeedLabel = Readout:AddLabel("Speed: " .. tostring(Library.Flags.speed))
-local ToggleLabel = Readout:AddLabel("Simple toggle: " .. tostring(Library.Flags.simple_toggle))
-
-Readout:AddLabel({
-	Title = "Library.Flags[<flag>] always holds the current value of every element that has a Flag.",
-	Dim = true,
-})
-
-task.spawn(function()
-	while not Library.Unloaded do
-		SpeedLabel:Set("Speed: " .. tostring(Library.Flags.speed))
-		ToggleLabel:Set("Simple toggle: " .. tostring(Library.Flags.simple_toggle))
-		task.wait(0.25)
+		if Toggle_Keybind:GetState() then
+			print("Toggle keybind is on")
+		end
 	end
 end)
 
-local Programmatic = Live:AddSection("Set values from code", "Right")
+--// Inputs tab ------------------------------------------------------------------------
 
-Programmatic:AddButton({
-	Title = "Library:Set('speed', 80)",
+local TextboxSection = Inputs:AddSection("Textboxes", "Left")
+
+TextboxSection:AddLabel({ Title = "Textbox (value is applied when it loses focus)", Dim = true })
+TextboxSection:AddTextbox({
+	Title = "This is a textbox",
+	Flag = "MyTextbox",
+	Default = "My textbox!",
+	Placeholder = "Placeholder text",
+	-- Icon = "rbxassetid://...",
+	Callback = function(Value)
+		print("[cb] Text updated. New text:", Value)
+	end,
+})
+
+-- Read-only text box, handy for live status. :Set(Text, Animate)
+local Indicator = TextboxSection:AddTextIndicator({
+	Title = "Indicator",
+	Flag = "MyIndicator",
+	Default = "Waiting...",
+})
+
+TextboxSection:AddButton({
+	Title = "Type into indicator",
 	Callback = function()
-		Library:Set("speed", 80)
+		Indicator:Set("Hello from the indicator!", true) -- true = typewriter animation
 	end,
 })
 
-Programmatic:AddButton({
-	Title = "Speed:Set(10)",
-	Callback = function()
-		Speed:Set(10)
+local DropdownSection = Inputs:AddSection("Dropdowns", "Right")
+
+DropdownSection:AddDropdown({
+	Title = "A dropdown",
+	Flag = "MyDropdown",
+	Options = { "This", "is", "a", "dropdown" },
+	Default = "is", -- defaults to the first option
+	Callback = function(Value)
+		print("[cb] Dropdown got changed. New value:", Value)
 	end,
 })
 
---// Visuals > Feedback ---------------------------------------------------------
-local Feedback = VisualTab:AddSubTab("Feedback")
-
-local Notifications = Feedback:AddSection("Notifications", "Left")
-
-Notifications:AddButton({
-	Title = "Short notification",
-	Callback = function()
-		Library:Notify("Hello", "This is a short notification.", 2)
+-- Multi dropdown: the value is an array of the selected options
+DropdownSection:AddDropdown({
+	Title = "A multi dropdown",
+	Flag = "MyMultiDropdown",
+	Options = { "This", "is", "a", "multi", "dropdown" },
+	Multi = true,
+	Default = { "This", "is" },
+	Callback = function(Value)
+		print("[cb] Multi dropdown got changed:", table.concat(Value, ", "))
 	end,
 })
 
-Notifications:AddButton({
-	Title = "Long notification (6s)",
-	Callback = function()
-		Library:Notify("Long one", "This one stays for six seconds so you can see stacking.", 6)
+-- Format changes only what is displayed, the value stays the same
+DropdownSection:AddDropdown({
+	Title = "A display formatted dropdown",
+	Flag = "MyFormattedDropdown",
+	Options = { "This", "is", "formatted" },
+	Format = function(Value)
+		if Value == "formatted" then
+			return "display formatted"
+		end
+
+		return Value
+	end,
+	Callback = function(Value)
+		print("[cb] Formatted dropdown value:", Value) -- still "formatted"
 	end,
 })
 
-Notifications:AddLabel({
-	Title = "Drag the \"Example\" notification (visible while the menu is open) to choose where notifications appear.",
-	Dim = true,
-})
-
-local Pills = Feedback:AddSection("Pills & watermark", "Right")
-
-Pills:AddTextbox({
-	Title = "Pill text",
-	Placeholder = "Custom pill description...",
-	Callback = function(Text)
-		CustomPill:SetDescription(Text)
+-- Dropdown with options we can swap out at runtime
+local Players = game:GetService("Players")
+local PlayerDropdown = DropdownSection:AddDropdown({
+	Title = "A player dropdown",
+	Flag = "MyPlayerDropdown",
+	Options = {},
+	Callback = function(Value)
+		print("[cb] Player dropdown got changed:", Value)
 	end,
 })
 
-Pills:AddTextbox({
-	Title = "Watermark text",
-	Placeholder = "Watermark text...",
-	Callback = function(Text)
-		Window:SetWatermark(Text)
-	end,
-})
+local function RefreshPlayers()
+	local Names = {}
 
-Pills:AddToggle({
-	Title = "Show watermark",
+	for _, Player in ipairs(Players:GetPlayers()) do
+		if Player ~= Players.LocalPlayer then
+			table.insert(Names, Player.Name)
+		end
+	end
+
+	PlayerDropdown:Refresh(Names) -- (Options, optional Default)
+end
+
+RefreshPlayers()
+Library:Connect(Players.PlayerAdded, RefreshPlayers)
+Library:Connect(Players.PlayerRemoving, function()
+	task.defer(RefreshPlayers)
+end)
+
+--// UI Settings -----------------------------------------------------------------------
+
+Library:OnUnload(function()
+	print("Unloaded!")
+end)
+
+local MenuTab = UITab:AddSubTab("Menu")
+local ConfigTab = UITab:AddSubTab("Config")
+
+local MenuSection = MenuTab:AddSection("Menu", "Left")
+
+MenuSection:AddToggle({
+	Title = "Watermark",
+	Flag = "WatermarkVisible",
 	Default = true,
 	Callback = function(Value)
 		Window:SetWatermarkVisible(Value)
 	end,
 })
 
-local Greeting = VisualTab:AddSubTab("Window")
-local WindowSection = Greeting:AddSection("Window text", "Left")
-
-WindowSection:AddTextbox({
-	Title = "Window title",
-	Placeholder = "Window title...",
-	Callback = function(Text)
-		Window:SetTitle(Text)
+MenuSection:AddButton({
+	Title = "Test notification",
+	Callback = function()
+		Library:Notify("Notification", "Drag the example notification to move where these appear.", 4)
 	end,
 })
 
-WindowSection:AddTextbox({
-	Title = "Game name",
-	Placeholder = "Game name...",
-	Callback = function(Text)
-		Window:SetGameName(Text)
-	end,
-})
+MenuSection:AddDivider()
 
---// Settings -------------------------------------------------------------------
-local Settings = SettingsTab:AddSubTab("Menu")
-
-local Menu = Settings:AddSection("Menu", "Left")
-
-Menu:AddKeybind({
-	Title = "Menu key",
-	Flag = "menu_key",
-	Default = Library.Keybind,
+-- Rebinding the menu key. Window opens/closes with Library.Keybind
+MenuSection:AddKeybind({
+	Title = "Menu keybind",
+	Flag = "MenuKeybind",
 	Mode = "Press",
+	Default = Enum.KeyCode.RightShift,
 	ChangedCallback = function(Key)
 		if Key then
 			Library:SetMenuKey(Key)
 		end
 	end,
-	Callback = function() end,
 })
 
-Menu:AddButton({
-	Title = "Unload UI",
+MenuSection:AddButton({
+	Title = "Unload",
 	Callback = function()
-		Library:Unload()
+		Library:Exit() -- same as Library:Unload()
 	end,
 })
 
-local Theme = Settings:AddSection("Theme", "Right")
+-- Live theme editing. Every color of the UI is in Library.Theme
+local ThemeSection = MenuTab:AddSection("Theme", "Right")
 
-Theme:AddColorpicker({
-	Title = "Accent",
-	Flag = "theme_accent",
-	Default = Library.Theme.Accent,
-	Callback = function(Color)
-		Library:SetTheme("Accent", Color)
-	end,
-})
+for _, Key in ipairs({ "Accent", "AccentDark", "Window", "Panel", "Section", "Element", "Outline" }) do
+	ThemeSection:AddColorpicker({
+		Title = Key,
+		Flag = "Theme_" .. Key, -- "Theme_*" flags are skipped by SaveManager:IgnoreThemeSettings()
+		Default = Library.Theme[Key],
+		Callback = function(Color)
+			Library:SetTheme(Key, Color)
+		end,
+	})
+end
 
-Theme:AddColorpicker({
-	Title = "Accent (dark end)",
-	Flag = "theme_accent_dark",
-	Default = Library.Theme.AccentDark,
-	Callback = function(Color)
-		Library:SetTheme("AccentDark", Color)
-	end,
-})
+--// SaveManager --------------------------------------------------------------------------
 
-Theme:AddColorpicker({
-	Title = "Window background",
-	Flag = "theme_window",
-	Default = Library.Theme.Window,
-	Callback = function(Color)
-		Library:SetTheme("Window", Color)
-	end,
-})
+-- Hand the library over to the manager
+SaveManager:SetLibrary(Library)
 
-Theme:AddButton({
-	Title = "Reset theme",
-	Callback = function()
-		Library:SetTheme({
-			Accent = Color3.fromRGB(0, 131, 255),
-			AccentDark = Color3.fromRGB(0, 63, 255),
-			Window = Color3.fromRGB(21, 21, 22),
-		})
+-- Don't save theme colors inside configs (flags named like theme keys, or "Theme_<Key>")
+SaveManager:IgnoreThemeSettings()
 
-		Library:Set("theme_accent", Color3.fromRGB(0, 131, 255))
-		Library:Set("theme_accent_dark", Color3.fromRGB(0, 63, 255))
-		Library:Set("theme_window", Color3.fromRGB(21, 21, 22))
-	end,
-})
+-- Ignore flags you don't want per-config (do you want each config to have a different menu key? probably not)
+SaveManager:SetIgnoreIndexes({ "MenuKeybind", "MyIndicator" })
 
-local Configs = Settings:AddSubTab("Configs")
-local ConfigSection = Configs:AddSection("Configs", "Left")
-ConfigSection:AddConfigManager()
+-- Config files go to:  MyScriptHub/specific-game/settings/specific-place/<name>.json
+SaveManager:SetFolder("MyScriptHub/specific-game")
+SaveManager:SetSubFolder("specific-place") -- optional, e.g. different places of one game
 
-local ConfigInfo = Configs:AddSection("How it works", "Right")
-ConfigInfo:AddLabel("Every element with a Flag is saved. Pick a config, press Save / Load, or mark one with Set Auto-Load.")
+-- Optional: load element types in a specific order (e.g. dropdowns before the things that depend on them)
+-- SaveManager:SetLoadingOrder(true, { "Dropdown", "Toggle", "Slider", "Textbox", "Colorpicker", "Keybind" })
 
---// Cleanup hook
-Library:OnUnload(function()
-	print("[Example] UI unloaded")
-end)
+-- Optional: don't save the window / notification position
+-- SaveManager:SetSaveLayout(false)
 
---// Finish
-Library:LoadAutoload() -- loads the config marked with "Set Auto-Load" (does nothing if there is none)
+-- Builds the Configuration section (right side by default; pass "Left" as 2nd argument for the left)
+SaveManager:BuildConfigSection(ConfigTab)
 
-task.delay(1, function()
-	Library:Notify("Feral UI", "Loaded! Press " .. Library.Keybind.Name .. " to toggle the menu.", 4)
-end)
+-- Loads the config marked "Set as autoload". Keep this as the LAST line of your script.
+SaveManager:LoadAutoloadConfig()
