@@ -3,6 +3,7 @@
 	Load it with:
 		local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/<user>/<repo>/main/Library.lua"))()
 
+	v1.1.0: Library:Dialog(), Library.Elements registry, Dropdown Format option (for SaveManager)
 	v1.0.1: window / watermark / notification anchor are fully draggable,
 	        window remembers its position, and is clamped on screen.
 ]]
@@ -32,10 +33,11 @@ local HasFS = (isfolder and makefolder and isfile and readfile and writefile) ~=
 
 --// Library table
 local Library = {
-	Version = "1.0.1",
+	Version = "1.1.0",
 
 	Flags = {},
 	SetFlags = {},
+	Elements = {}, -- [Flag] = element object (used by SaveManager)
 	Keybind = Enum.KeyCode.X,
 
 	Directory = "feral",
@@ -84,6 +86,7 @@ local Library = {
 	AnchorFrame = nil,
 
 	ActivePopup = nil,
+	ActiveDialog = nil,
 	Listening = false,
 	MainWindow = nil,
 	Initialized = false,
@@ -1161,6 +1164,7 @@ local function MakeColorPicker(Square, Options)
 	end)
 
 	if CP.Flag then
+		Library.Elements[CP.Flag] = CP
 		Library.SetFlags[CP.Flag] = function(Value)
 			CP:Set(Value)
 		end
@@ -1285,6 +1289,7 @@ function SectionMethods:AddToggle(Config)
 			Toggle:Set(Value)
 		end
 		Library.Flags[Toggle.Flag] = Toggle.Value
+		Library.Elements[Toggle.Flag] = Toggle
 	end
 
 	table.insert(Library.ThemeHooks, function()
@@ -1412,6 +1417,7 @@ function SectionMethods:AddSlider(Config)
 	end)
 
 	if Slider.Flag then
+		Library.Elements[Slider.Flag] = Slider
 		Library.SetFlags[Slider.Flag] = function(Value)
 			Slider:Set(tonumber(Value) or Slider.Min)
 		end
@@ -1432,6 +1438,7 @@ function SectionMethods:AddDropdown(Config)
 		Multi = Config.Multi or false,
 		IsOpen = false,
 		Callback = Config.Callback or function() end,
+		Format = Config.Format or tostring, -- optional display formatter for options
 		Type = "Dropdown",
 	}
 
@@ -1511,11 +1518,20 @@ function SectionMethods:AddDropdown(Config)
 		return Dropdown.Value == Option
 	end
 
+	local function Display(Option)
+		local Ok, Result = pcall(Dropdown.Format, Option)
+		return tostring((Ok and Result ~= nil) and Result or Option)
+	end
+
 	local function RefreshPill()
 		if Dropdown.Multi then
-			Items.Text = (#Dropdown.Value == 0) and "None" or table.concat(Dropdown.Value, ", ")
+			local Names = {}
+			for _, Option in ipairs(Dropdown.Value) do
+				table.insert(Names, Display(Option))
+			end
+			Items.Text = (#Names == 0) and "None" or table.concat(Names, ", ")
 		else
-			Items.Text = Dropdown.Value and tostring(Dropdown.Value) or "None"
+			Items.Text = (Dropdown.Value ~= nil) and Display(Dropdown.Value) or "None"
 		end
 	end
 
@@ -1602,7 +1618,7 @@ function SectionMethods:AddDropdown(Config)
 		for _, Option in ipairs(Dropdown.Options) do
 			local Item = MakeLabel(ListFrame, {
 				Name = "item",
-				Text = tostring(Option),
+				Text = Display(Option),
 				AutomaticSize = Enum.AutomaticSize.Y,
 				Size = UDim2.new(1, 0, 0, 0),
 				Active = true,
@@ -1652,6 +1668,7 @@ function SectionMethods:AddDropdown(Config)
 			Dropdown:Set(Value)
 		end
 		Library.Flags[Dropdown.Flag] = Dropdown.Value
+		Library.Elements[Dropdown.Flag] = Dropdown
 	end
 
 	Dropdown.Instance = Row
@@ -1736,6 +1753,7 @@ function SectionMethods:AddTextbox(Config)
 			Textbox:Set(Value, false)
 		end
 		Library.Flags[Textbox.Flag] = Textbox.Value
+		Library.Elements[Textbox.Flag] = Textbox
 	end
 
 	Textbox.Instance = Row
@@ -2056,6 +2074,7 @@ function SectionMethods:AddKeybind(Config)
 	end)
 
 	if Keybind.Flag then
+		Library.Elements[Keybind.Flag] = Keybind
 		Library.SetFlags[Keybind.Flag] = function(Value)
 			Keybind:Set(Value)
 		end
@@ -2235,6 +2254,164 @@ function SectionMethods:AddConfigManager()
 	Manager.Instance = Frame
 	Manager:Refresh()
 	return Manager
+end
+
+--// Dialog (confirm popup) -----------------------------------------------------
+
+--- Modal confirm dialog.
+--- Config: Title, Description, ConfirmText, CancelText, Destructive (bool), Callback (on confirm), OnCancel
+function Library:Dialog(Config)
+	Config = Config or {}
+	self:Init()
+
+	if self.ActiveDialog then
+		self.ActiveDialog:Dismiss(true)
+	end
+
+	local Dialog = {}
+	local Closing = false
+
+	local Overlay = Create("Frame", {
+		Name = "dialog",
+		BorderSizePixel = 0,
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 1, 0),
+		ZIndex = 2000,
+		Active = true,
+	}, self.Holder)
+
+	local Box = Create("Frame", {
+		Name = "box",
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(0, 320, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Active = true,
+	}, Overlay)
+	Themed(Box, { BackgroundColor3 = "Panel" })
+	Corner(Box, 10)
+	Stroke(Box, "OutlineLight")
+	Padding(Box, 12, 12, 12, 12)
+	List(Box, 8)
+	local Scale = Create("UIScale", { Scale = 0.9 }, Box)
+
+	MakeLabel(Box, {
+		Name = "title",
+		Bold = true,
+		TextSize = 16,
+		Text = Config.Title or "Confirm",
+		Size = UDim2.new(1, 0, 0, 18),
+		LayoutOrder = 1,
+	})
+
+	MakeLabel(Box, {
+		Name = "desc",
+		ColorKey = "SubText",
+		Text = Config.Description or "",
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.new(1, 0, 0, 0),
+		LayoutOrder = 2,
+	})
+
+	local Buttons = Create("Frame", {
+		Name = "buttons",
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 26),
+		LayoutOrder = 3,
+	}, Box)
+	List(Buttons, 8, {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalFlex = Enum.UIFlexAlignment.Fill,
+	})
+
+	local function MakeButton(Text, Order, OnClick, StrokeColor)
+		local Button = Create("TextButton", {
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, 0, 1, 0),
+			FontFace = Library.FontBold,
+			Text = Text,
+			TextSize = 14,
+			AutoButtonColor = false,
+			LayoutOrder = Order,
+		}, Buttons)
+		Themed(Button, { BackgroundColor3 = "Element", TextColor3 = "Text" })
+		Corner(Button, 5)
+
+		local ButtonStroke
+		if StrokeColor then
+			ButtonStroke = Create("UIStroke", { Color = StrokeColor, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, Button)
+		else
+			ButtonStroke = Stroke(Button, "Outline")
+		end
+
+		local Normal = StrokeColor
+		Library:Connect(Button.MouseEnter, function()
+			Tween(ButtonStroke, { Color = Library.Theme.ToggleOn })
+		end)
+		Library:Connect(Button.MouseLeave, function()
+			Tween(ButtonStroke, { Color = Normal or Library.Theme.Outline })
+		end)
+
+		Library:OnClick(Button, OnClick)
+		return Button
+	end
+
+	function Dialog:Dismiss(Instant)
+		if Closing then
+			return
+		end
+
+		Closing = true
+
+		if Library.ActiveDialog == Dialog then
+			Library.ActiveDialog = nil
+		end
+
+		if Instant then
+			Overlay:Destroy()
+			return
+		end
+
+		Tween(Overlay, { BackgroundTransparency = 1 })
+		local Out = Tween(Scale, { Scale = 0.9 })
+		if Out then
+			Out.Completed:Connect(function()
+				Overlay:Destroy()
+			end)
+		else
+			Overlay:Destroy()
+		end
+	end
+
+	MakeButton(Config.CancelText or "Cancel", 1, function()
+		Dialog:Dismiss()
+		Library:Call(Config.OnCancel)
+	end)
+
+	MakeButton(Config.ConfirmText or "Confirm", 2, function()
+		Dialog:Dismiss()
+		Library:Call(Config.Callback)
+	end, Config.Destructive and Color3.fromRGB(235, 70, 70) or nil)
+
+	-- click on the dim background cancels
+	Library:OnClick(Overlay, function()
+		if not Library:IsOver(Box) then
+			Dialog:Dismiss()
+			Library:Call(Config.OnCancel)
+		end
+	end)
+
+	Tween(Overlay, { BackgroundTransparency = 0.5 })
+	Tween(Scale, { Scale = 1 })
+
+	self.ActiveDialog = Dialog
+	Dialog.Instance = Overlay
+	return Dialog
 end
 
 --// Window --------------------------------------------------------------------
