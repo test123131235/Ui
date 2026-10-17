@@ -6,7 +6,7 @@
 	2. Point `Repo` below at your raw URL:  https://raw.githubusercontent.com/<user>/<repo>/<branch>/
 ]]
 
-local Repo = "https://raw.githubusercontent.com/test123131235/uiuiui/main/"
+local Repo = "https://raw.githubusercontent.com/test123131235/Ui/main/"
 local Library = loadstring(game:HttpGet(Repo .. "Library.lua"))()
 
 --// Optional: tweak the library before building the window
