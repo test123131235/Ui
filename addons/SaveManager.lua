@@ -876,4 +876,8 @@ function SaveManager:BuildConfigSection(Tab, Side)
 end
 
 SaveManager:BuildFolderTree()
+
+local Genv = (getgenv and getgenv()) or shared
+Genv.FeralSaveManager = SaveManager
+
 return SaveManager
