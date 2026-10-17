@@ -418,7 +418,7 @@ Library.Holder.Parent = GETH()
 ----------------------------------------------------------------------
 -- Custom cursor
 ----------------------------------------------------------------------
-Library.CursorImage = "rbxassetid://89116795437925"
+Library.CursorImage = "rbxassetid://92522094773590"
 Library.CursorSize = 32 -- change if the image looks too big/small
 
 local OriginalMouseIconEnabled = UserInputService.MouseIconEnabled
