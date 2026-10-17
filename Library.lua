@@ -1940,7 +1940,7 @@ do
 
         -- Pills ----------------------------------------------------
         function Window.AddCustomPill(self, Title, Description, Logo, AccentColor)
-            AccentColor = AccentColor or Color3.fromRGB(0, 131, 255)
+            AccentColor = AccentColor or Color3.fromRGB(255, 255, 255)
 
             local Pill = {
                 Title = Title or "Pill",
@@ -1963,7 +1963,7 @@ do
             }, customPill)
             local pillLogoGrad = N("UIGradient", {
                 Rotation = 90,
-                Color = ColorSequence.new { ColorSequenceKeypoint.new(0, AccentColor), ColorSequenceKeypoint.new(1, Dark(AccentColor)) },
+                Color = ColorSequence.new { ColorSequenceKeypoint.new(0, AccentColor), ColorSequenceKeypoint.new(1, AccentColor) },
             }, pillLogo)
 
             Pad(customPill, 5, 10, 5, 5)
@@ -1991,7 +1991,7 @@ do
             function Pill.SetLogo(self, l) self:Set(nil, nil, l) end
             function Pill.SetAccent(self, color)
                 self.AccentColor = color
-                pillLogoGrad.Color = ColorSequence.new { ColorSequenceKeypoint.new(0, color), ColorSequenceKeypoint.new(1, Dark(color)) }
+                pillLogoGrad.Color = ColorSequence.new { ColorSequenceKeypoint.new(0, color), ColorSequenceKeypoint.new(1, color) }
             end
             function Pill.Destroy(self) customPill:Destroy() end
 
@@ -2000,7 +2000,7 @@ do
         end
 
         function Window.AddFPSPill(self, AccentColor, Logo)
-            local pill = self:AddCustomPill("FPS", "--", Logo, AccentColor or Color3.fromRGB(0, 200, 100))
+            local pill = self:AddCustomPill("FPS", "--", Logo, AccentColor or Color3.fromRGB(255, 255, 255))
             task.spawn(function()
                 local frames = 0
                 local last = os.clock()
@@ -2019,7 +2019,7 @@ do
         end
 
         function Window.AddPingPill(self, AccentColor, Logo)
-            local pill = self:AddCustomPill("Ping", "-- ms", Logo, AccentColor or Color3.fromRGB(255, 180, 60))
+            local pill = self:AddCustomPill("Ping", "-- ms", Logo, AccentColor or Color3.fromRGB(255, 255, 255))
             local Stats = game:GetService("Stats")
             task.spawn(function()
                 while Library do
@@ -2032,7 +2032,7 @@ do
         end
 
         function Window.AddTimePill(self, AccentColor, Logo)
-            local pill = self:AddCustomPill("Time", "--:--:--", Logo, AccentColor or Color3.fromRGB(180, 120, 255))
+            local pill = self:AddCustomPill("Time", "--:--:--", Logo, AccentColor or Color3.fromRGB(255, 255, 255))
             task.spawn(function()
                 while Library do
                     local t = os.date("*t")
@@ -2044,7 +2044,7 @@ do
         end
 
         function Window.AddCoordsPill(self, AccentColor, Logo)
-            local pill = self:AddCustomPill("Coords", "0, 0, 0", Logo, AccentColor or Color3.fromRGB(80, 200, 255))
+            local pill = self:AddCustomPill("Coords", "0, 0, 0", Logo, AccentColor or Color3.fromRGB(255, 255, 255))
             task.spawn(function()
                 while Library do
                     local char = LocalPlayer.Character
@@ -2061,7 +2061,7 @@ do
         end
 
         function Window.AddUsernamePill(self, AccentColor, Logo)
-            local pill = self:AddCustomPill("User", LocalPlayer.DisplayName, Logo, AccentColor or Color3.fromRGB(255, 100, 150))
+            local pill = self:AddCustomPill("User", LocalPlayer.DisplayName, Logo, AccentColor or Color3.fromRGB(255, 255, 255))
             task.spawn(function()
                 while Library do
                     pill:SetDescription("@" .. LocalPlayer.Name)
