@@ -1747,9 +1747,9 @@ do
             else
                 -- fraction of the screen the window is allowed to take up
                 local SmallScreen = IsMobile or vs.X < 1100 or vs.Y < 700
-                local Fill = Window.ScreenFill or (SmallScreen and 0.6 or 0.95)
+                local Fill = Window.ScreenFill or (SmallScreen and 0.5 or 0.95)
                 local bw, bh = BaseSize.X.Offset, BaseSize.Y.Offset
-                s = Window.MaxScale or 1
+                s = Window.MaxScale or (IsMobile and 0.8 or 1)
                 if bw > 0 then s = math.min(s, (vs.X * Fill) / bw) end
                 if bh > 0 then s = math.min(s, (vs.Y * Fill) / bh) end
             end
@@ -1808,6 +1808,25 @@ do
 
         BlueGrad(hubInfo, 90)
 
+        -- Close (X) button in the window's top-right corner. Shown on touch devices by default.
+        -- Window options: CloseButton = true/false
+        do
+            local ShowClose = Window.CloseButton
+            if ShowClose == nil then ShowClose = IsMobile or UserInputService.TouchEnabled end
+
+            local closeBtn = N("TextButton", {
+                BackgroundColor3 = Color3.fromRGB(28, 28, 30), AnchorPoint = Vector2.new(1, 0),
+                Position = UDim2.new(1, -8, 0, 8), Size = UDim2.new(0, 28, 0, 28), Text = "X",
+                FontFace = Library.FontBold, TextSize = 16, TextColor3 = WHITE, AutoButtonColor = false,
+                Name = "closeButton", ZIndex = 20, Visible = ShowClose and true or false,
+            }, main)
+            Corner(closeBtn, 6)
+            Stroke(closeBtn, OUTLINE)
+            Window.CloseButtonInstance = closeBtn
+            Library:Connect(closeBtn.Activated, function() Window:SetVisible(false) end)
+            function Window.SetCloseButtonVisible(self, Value) closeBtn.Visible = Value and true or false end
+        end
+
         local DragInfo = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
         do
@@ -1817,6 +1836,7 @@ do
             Library:Connect(UserInputService.InputBegan, function(Input)
                 if not IsPress(Input) then return end
                 if not IsMouseOverFrame(top, Input) then return end
+                if Window.CloseButtonInstance and Window.CloseButtonInstance.Visible and IsMouseOverFrame(Window.CloseButtonInstance, Input) then return end
                 for _, Child in pairs(Library.Holder:GetChildren()) do
                     if Child:IsA("Frame") and Child.Name == "colorpickerPopup" and Child.Visible and IsMouseOverFrame(Child, Input) then
                         return
@@ -1878,7 +1898,7 @@ do
         -- Window:Create options: MobileButton = true/false (default: true on touch-only devices).
         do
             local ShowButton = Window.MobileButton
-            if ShowButton == nil then ShowButton = IsMobile end
+            if ShowButton == nil then ShowButton = IsMobile or UserInputService.TouchEnabled end
 
             local btn = N("Frame", {
                 BackgroundColor3 = Color3.fromRGB(20, 20, 21), Size = UDim2.new(0, 46, 0, 46),
