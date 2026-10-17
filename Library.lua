@@ -1739,7 +1739,8 @@ do
                 s = Window.Scale
             else
                 -- fraction of the screen the window is allowed to take up
-                local Fill = Window.ScreenFill or (IsMobile and 0.65 or 0.95)
+                local SmallScreen = IsMobile or vs.X < 1100 or vs.Y < 700
+                local Fill = Window.ScreenFill or (SmallScreen and 0.6 or 0.95)
                 local bw, bh = BaseSize.X.Offset, BaseSize.Y.Offset
                 s = Window.MaxScale or 1
                 if bw > 0 then s = math.min(s, (vs.X * Fill) / bw) end
