@@ -1862,60 +1862,11 @@ do
 
         Window.NotificationAnchor = UDim2.new(0, 100, 0, 100)
 
-        local DemoNotif = Window:CreateNotification("Example", "Drag me to reposition")
-        DemoNotif.Name = "demoNotification"
-        DemoNotif.Visible = false
-        DemoNotif.Position = Window.NotificationAnchor
-
-        local demoDragging = false
-        local demoDragStart, demoStartPos
-
+        -- notifications slide in from the left at NotificationAnchor
         local function NotifHiddenPos()
             local a = Window.NotificationAnchor
             return UDim2.new(a.X.Scale, a.X.Offset - 300, a.Y.Scale, a.Y.Offset)
         end
-        local function ShowDemo()
-            DemoNotif.Position = NotifHiddenPos()
-            DemoNotif.Visible = true
-            Library:Tween({ Position = Window.NotificationAnchor }, nil, DemoNotif)
-        end
-
-        do
-            Library:Connect(UserInputService.InputBegan, function(Input)
-                if not Window.Open then return end
-                if not IsPress(Input) then return end
-                if not IsMouseOverFrame(DemoNotif) then return end
-                demoDragging = true
-                demoDragStart = Input.Position
-                demoStartPos = DemoNotif.Position
-            end)
-            Library:Connect(UserInputService.InputChanged, function(Input)
-                if not demoDragging then return end
-                if Input.UserInputType ~= Enum.UserInputType.MouseMovement and Input.UserInputType ~= Enum.UserInputType.Touch then return end
-                local Delta = Input.Position - demoDragStart
-                local NewPos = UDim2.new(
-                    demoStartPos.X.Scale, demoStartPos.X.Offset + Delta.X,
-                    demoStartPos.Y.Scale, demoStartPos.Y.Offset + Delta.Y
-                )
-                Library:Tween({ Position = NewPos }, DragInfo, DemoNotif)
-                Window.NotificationAnchor = NewPos
-            end)
-            Library:Connect(UserInputService.InputEnded, function(Input)
-                if IsPress(Input) then demoDragging = false end
-            end)
-        end
-
-        Library:Connect(RunService.Heartbeat, (function()
-            local lastOpen = Window.Open
-            return function()
-                if Window.Open ~= lastOpen then
-                    lastOpen = Window.Open
-                    if Window.Open then ShowDemo() else DemoNotif.Visible = false end
-                end
-            end
-        end)())
-
-        ShowDemo()
 
         -- Library:Notify(Title, Description, Duration)  or  Library:Notify(Text, Duration)
         function Library.Notify(Self, Title, Description, Duration)
