@@ -415,6 +415,7 @@ local CursorGui, CursorLabel
 
 -- everything cursor-related is wrapped so it can never stop the library from loading
 local CursorOk, CursorErr = pcall(function()
+    if IsMobile then return end -- no custom cursor on touch devices
     CursorGui = Instance.new("ScreenGui")
     CursorGui.Name = "\0"
     CursorGui.IgnoreGuiInset = true
@@ -450,7 +451,7 @@ function Library.RestoreCursor(Self)
     CursorGui, CursorLabel = nil, nil
 end
 
-if CursorOk then
+if CursorOk and CursorLabel then
     Library:Connect(RunService.RenderStepped, function()
         if not CursorLabel then return end
         pcall(function()
@@ -497,8 +498,17 @@ local WHITE = Color3.fromRGB(255, 255, 255)
 local OUTLINE = Color3.fromRGB(40, 40, 40)
 local ELEMENT = Color3.fromRGB(28, 28, 30)
 
-local function IsMouseOverFrame(Frame)
-    local MousePos = UserInputService:GetMouseLocation()
+-- Pointer position in the same convention as GetMouseLocation(). Touch inputs use their own position
+-- (GetMouseLocation is unreliable on phones/tablets).
+local function PointerLocation(Input)
+    if Input and Input.UserInputType == Enum.UserInputType.Touch then
+        return Vector2.new(Input.Position.X, Input.Position.Y + GuiInset)
+    end
+    return UserInputService:GetMouseLocation()
+end
+
+local function IsMouseOverFrame(Frame, Input)
+    local MousePos = PointerLocation(Input)
     local mx, my = MousePos.X, MousePos.Y - GuiInset
     local p, sz = Frame.AbsolutePosition, Frame.AbsoluteSize
     return mx >= p.X and mx <= p.X + sz.X and my >= p.Y and my <= p.Y + sz.Y
@@ -536,6 +546,29 @@ Library.ToAsset = function(Self, Id, Fallback) return ToAsset(Id, Fallback) end
 local function IsPress(Input)
     return Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch
 end
+
+local function IsMove(Input)
+    return Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch
+end
+
+-- stops the column scrolling while a slider / picker is dragged with a finger
+local function SetScrollLock(From, Locked)
+    local sf = From and From:FindFirstAncestorOfClass("ScrollingFrame")
+    if sf then sf.ScrollingEnabled = not Locked end
+end
+
+-- touch sizing (only used on phones/tablets without a keyboard)
+local TOUCH = IsMobile
+local H_TOGGLE   = TOUCH and 24 or 14
+local H_SLIDER   = TOUCH and 44 or 30
+local H_BAR      = TOUCH and 26 or 15
+local H_DROPDOWN = TOUCH and 32 or 25
+local H_INPUT    = TOUCH and 32 or 25
+local H_BUTTON   = TOUCH and 30 or 20
+local H_TAB      = TOUCH and 36 or 30
+local S_SQUARE   = TOUCH and 22 or 15
+local PAD_ROWS   = TOUCH and 8 or 5
+local POPUP_SCALE = TOUCH and 1.3 or 1
 
 ----------------------------------------------------------------------
 -- Global key picker input
@@ -647,6 +680,7 @@ local function MakeColorpicker(square, Cfg)
     end
 
     local svDragging, hueDragging = false, false
+    local dragInput = nil
 
     local function UpdateSVFromMouse(mousePos)
         local p, sz = svSquare.AbsolutePosition, svSquare.AbsoluteSize
@@ -665,32 +699,43 @@ local function MakeColorpicker(square, Cfg)
     Library:Connect(svSquare.InputBegan, function(Input)
         if IsPress(Input) then
             svDragging = true
-            UpdateSVFromMouse(UserInputService:GetMouseLocation())
+            dragInput = Input
+            UpdateSVFromMouse(PointerLocation(Input))
         end
     end)
     Library:Connect(hueBar.InputBegan, function(Input)
         if IsPress(Input) then
             hueDragging = true
-            UpdateHueFromMouse(UserInputService:GetMouseLocation())
+            dragInput = Input
+            UpdateHueFromMouse(PointerLocation(Input))
         end
     end)
     Library:Connect(UserInputService.InputChanged, function(Input)
-        if Input.UserInputType ~= Enum.UserInputType.MouseMovement and Input.UserInputType ~= Enum.UserInputType.Touch then return end
-        local mousePos = UserInputService:GetMouseLocation()
+        if not IsMove(Input) then return end
+        if not svDragging and not hueDragging then return end
+        if Input.UserInputType == Enum.UserInputType.Touch and Input ~= dragInput then return end
+        local mousePos = PointerLocation(Input)
         if svDragging then UpdateSVFromMouse(mousePos)
         elseif hueDragging then UpdateHueFromMouse(mousePos) end
     end)
     Library:Connect(UserInputService.InputEnded, function(Input)
-        if IsPress(Input) then svDragging = false; hueDragging = false end
+        if not IsPress(Input) then return end
+        if Input.UserInputType == Enum.UserInputType.Touch and Input ~= dragInput then return end
+        svDragging = false; hueDragging = false
     end)
 
     function Colorpicker.Open(self)
         self.IsOpen = true
         local mousePos = UserInputService:GetMouseLocation()
         local viewport = workspace.CurrentCamera.ViewportSize
-        local popupW, popupH = 180, 150
+        local popupW, popupH = 180 * POPUP_SCALE, 150 * POPUP_SCALE
         local x = mousePos.X
         local y = mousePos.Y - GuiInset
+        if TOUCH then
+            -- centred on touch devices so the finger never covers it
+            x = (viewport.X - popupW) / 2
+            y = (viewport.Y - popupH) / 2
+        end
         if x + popupW > viewport.X then x = viewport.X - popupW end
         if y + popupH > viewport.Y then y = viewport.Y - popupH end
         if x < 0 then x = 0 end
@@ -698,7 +743,7 @@ local function MakeColorpicker(square, Cfg)
         popup.Position = UDim2.new(0, x, 0, y)
         popup.Visible = true
         popupScale.Scale = 0
-        Library:Tween({ Scale = 1 }, nil, popupScale)
+        Library:Tween({ Scale = POPUP_SCALE }, nil, popupScale)
     end
 
     function Colorpicker.Close(self)
@@ -741,8 +786,8 @@ local function MakeColorpicker(square, Cfg)
     Library:Connect(UserInputService.InputBegan, function(Input)
         if not IsPress(Input) then return end
         if not Colorpicker.IsOpen then return end
-        if IsMouseOverFrame(popup) then return end
-        if IsMouseOverFrame(square) then return end
+        if IsMouseOverFrame(popup, Input) then return end
+        if IsMouseOverFrame(square, Input) then return end
         Colorpicker:Close()
     end)
 
@@ -758,7 +803,7 @@ end
 
 local function MakeColorSquare(parent, color, order)
     local sq = N("Frame", {
-        BackgroundColor3 = color, Size = UDim2.new(0, 15, 0, 15), Name = "colorSquare", Active = true, LayoutOrder = order or 2,
+        BackgroundColor3 = color, Size = UDim2.new(0, S_SQUARE, 0, S_SQUARE), Name = "colorSquare", Active = true, LayoutOrder = order or 2,
     }, parent)
     Corner(sq, 5)
     Stroke(sq, OUTLINE)
@@ -780,7 +825,7 @@ local function MakeKeypicker(parent, Idx, Info, parentToggle)
 
     local box = N("TextButton", {
         Text = "", AutoButtonColor = false, BackgroundColor3 = ELEMENT, AutomaticSize = Enum.AutomaticSize.X,
-        Size = UDim2.new(0, 0, 0, 15), LayoutOrder = 1, Name = "keypicker",
+        Size = UDim2.new(0, 0, 0, S_SQUARE), LayoutOrder = 1, Name = "keypicker",
     }, parent)
     Corner(box, 5)
     Stroke(box, OUTLINE)
@@ -830,7 +875,15 @@ local function MakeKeypicker(parent, Idx, Info, parentToggle)
     function KP.OnClick(self, fn) table.insert(self.Clicked, fn) end
     function KP.OnChanged(self, fn) table.insert(self.Changed, fn); Library:SafeCallback(fn, self.Value) end
 
-    Library:Connect(box.MouseButton1Click, function() KP.Picking = true; Display() end)
+    Library:Connect(box.MouseButton1Click, function()
+        if IsMobile then
+            KP.Mode = ModeCycle[KP.Mode] or "Toggle"
+            Display()
+        else
+            KP.Picking = true
+            Display()
+        end
+    end)
     Library:Connect(box.MouseButton2Click, function() KP.Mode = ModeCycle[KP.Mode] or "Toggle"; Display() end)
 
     if Idx then
@@ -849,7 +902,7 @@ local function GetAddons(holder, rightOffset)
     if box then return box end
     box = N("Frame", {
         Name = "addons", BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -rightOffset, 0.5, 0), AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 0, 15),
+        Position = UDim2.new(1, -rightOffset, 0.5, 0), AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 0, S_SQUARE),
     }, holder)
     N("UIListLayout", {
         Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder, FillDirection = Enum.FillDirection.Horizontal,
@@ -876,7 +929,7 @@ local function ApplyElements(Section, sectionContent)
         }
 
         local toggleHolder = N("Frame", {
-            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, 14), Name = "toggle", BackgroundTransparency = 1, Active = true,
+            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, H_TOGGLE), Name = "toggle", BackgroundTransparency = 1, Active = true,
         }, sectionContent)
 
         N("TextLabel", {
@@ -885,7 +938,8 @@ local function ApplyElements(Section, sectionContent)
         }, toggleHolder)
 
         local toggleSwitch = N("Frame", {
-            BackgroundColor3 = Color3.fromRGB(24, 24, 26), Size = UDim2.new(0, 30, 1, 1), Position = UDim2.new(1, -30, 0, 1), Name = "toggleSwitch",
+            BackgroundColor3 = Color3.fromRGB(24, 24, 26), Size = TOUCH and UDim2.new(0, 30, 0, 15) or UDim2.new(0, 30, 1, 1),
+            Position = TOUCH and UDim2.new(1, -30, 0.5, -7) or UDim2.new(1, -30, 0, 1), Name = "toggleSwitch",
         }, toggleHolder)
         Corner(toggleSwitch, 5)
         local toggleCircle = N("Frame", { BackgroundColor3 = WHITE, Size = UDim2.new(0, 10, 0, 10), Name = "circle" }, toggleSwitch)
@@ -940,7 +994,7 @@ local function ApplyElements(Section, sectionContent)
         Library:Connect(toggleHolder.InputBegan, function(Input)
             if not IsPress(Input) then return end
             for _, addon in ipairs(Toggle.Addons) do
-                if IsMouseOverFrame(addon.Frame) then return end
+                if IsMouseOverFrame(addon.Frame, Input) then return end
                 if addon.Object.IsOpen or addon.Object.Picking then return end
             end
             Toggle:Set(not Toggle.Value)
@@ -976,7 +1030,7 @@ local function ApplyElements(Section, sectionContent)
         }
 
         local sliderHolder = N("Frame", {
-            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, 30), Name = "slider", BackgroundTransparency = 1,
+            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, H_SLIDER), Name = "slider", BackgroundTransparency = 1,
         }, sectionContent)
         N("TextLabel", {
             TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, BackgroundColor3 = WHITE, FontFace = Library.Font,
@@ -988,7 +1042,7 @@ local function ApplyElements(Section, sectionContent)
         }, sliderHolder)
 
         local sliderPill = N("Frame", {
-            BackgroundColor3 = ELEMENT, Size = UDim2.new(1, 0, 0, 15), Position = UDim2.new(0, 0, 0, 15),
+            BackgroundColor3 = ELEMENT, Size = UDim2.new(1, 0, 0, H_BAR), Position = UDim2.new(0, 0, 0, 15),
             Name = "sliderPill", Active = true, ClipsDescendants = true,
         }, sliderHolder)
         Corner(sliderPill, 5)
@@ -1027,23 +1081,33 @@ local function ApplyElements(Section, sectionContent)
         function Slider.SetValue(self, Value) self:Set(tonumber(Value) or self.Value) end
         function Slider.OnChanged(self, fn) table.insert(self.Changed, fn); Library:SafeCallback(fn, self.Value) end
 
-        local dragging = false
-        local function UpdateValueFromMouse()
-            local m = UserInputService:GetMouseLocation()
+        local dragging, dragInput = false, nil
+        local function UpdateValueFromMouse(Input)
+            local m = PointerLocation(Input)
             local p, sz = sliderPill.AbsolutePosition, sliderPill.AbsoluteSize
             local Alpha = math.clamp((m.X - p.X) / sz.X, 0, 1)
             Slider:Set(Slider.Min + Alpha * (Slider.Max - Slider.Min))
         end
         Library:Connect(sliderPill.InputBegan, function(Input)
-            if IsPress(Input) then dragging = true; UpdateValueFromMouse() end
-        end)
-        Library:Connect(UserInputService.InputChanged, function(Input)
-            if dragging and (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch) then
-                UpdateValueFromMouse()
+            if IsPress(Input) then
+                dragging = true
+                dragInput = Input
+                SetScrollLock(sliderPill, true)
+                UpdateValueFromMouse(Input)
             end
         end)
+        Library:Connect(UserInputService.InputChanged, function(Input)
+            if not dragging or not IsMove(Input) then return end
+            if Input.UserInputType == Enum.UserInputType.Touch and Input ~= dragInput then return end
+            UpdateValueFromMouse(Input)
+        end)
         Library:Connect(UserInputService.InputEnded, function(Input)
-            if IsPress(Input) then dragging = false end
+            if not IsPress(Input) then return end
+            if Input.UserInputType == Enum.UserInputType.Touch and Input ~= dragInput then return end
+            if dragging then
+                dragging = false
+                SetScrollLock(sliderPill, false)
+            end
         end)
 
         if Slider.Flag then
@@ -1094,7 +1158,7 @@ local function ApplyElements(Section, sectionContent)
         end
 
         local dropdownHolder = N("Frame", {
-            BackgroundColor3 = WHITE, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, 40),
+            BackgroundColor3 = WHITE, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, 15 + H_DROPDOWN),
             Name = "dropdown", BackgroundTransparency = 1,
         }, sectionContent)
         N("TextLabel", {
@@ -1103,7 +1167,7 @@ local function ApplyElements(Section, sectionContent)
         }, dropdownHolder)
 
         local dropdownPill = N("Frame", {
-            BackgroundColor3 = ELEMENT, Size = UDim2.new(1, 0, 0, 25), Position = UDim2.new(0, 0, 0, 15),
+            BackgroundColor3 = ELEMENT, Size = UDim2.new(1, 0, 0, H_DROPDOWN), Position = UDim2.new(0, 0, 0, 15),
             Name = "dropdownPill", Active = true,
         }, dropdownHolder)
         Corner(dropdownPill, 5)
@@ -1123,7 +1187,7 @@ local function ApplyElements(Section, sectionContent)
 
         local dropdownList = N("Frame", {
             BackgroundColor3 = ELEMENT, AutomaticSize = Enum.AutomaticSize.None, Size = UDim2.new(1, 0, 0, 0),
-            Position = UDim2.new(0, 0, 0, 45), Name = "dropdownList", Visible = false,
+            Position = UDim2.new(0, 0, 0, 20 + H_DROPDOWN), Name = "dropdownList", Visible = false,
         }, dropdownHolder)
         Corner(dropdownList, 5)
         Stroke(dropdownList, OUTLINE)
@@ -1215,7 +1279,7 @@ local function ApplyElements(Section, sectionContent)
             for i, Option in ipairs(Dropdown.Options) do
                 local item = N("TextLabel", {
                     TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, BackgroundColor3 = WHITE, BackgroundTransparency = 1,
-                    TextColor3 = WHITE, FontFace = Library.Font, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, 0),
+                    TextColor3 = WHITE, FontFace = Library.Font, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, TOUCH and 22 or 0),
                     Text = tostring(Option), Name = "item", Active = true, LayoutOrder = i,
                 }, dropdownList)
                 Library:Connect(item.InputBegan, function(Input)
@@ -1250,7 +1314,7 @@ local function ApplyElements(Section, sectionContent)
         Library:Connect(UserInputService.InputBegan, function(Input)
             if not IsPress(Input) then return end
             if not Dropdown.IsOpen then return end
-            if not IsMouseOverFrame(dropdownPill) and not IsMouseOverFrame(dropdownList) then Dropdown:Close() end
+            if not IsMouseOverFrame(dropdownPill, Input) and not IsMouseOverFrame(dropdownList, Input) then Dropdown:Close() end
         end)
 
         if Dropdown.Flag then
@@ -1277,7 +1341,7 @@ local function ApplyElements(Section, sectionContent)
         }
 
         local holder = N("Frame", {
-            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, 25), Name = "textbox", BackgroundTransparency = 1,
+            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, H_INPUT), Name = "textbox", BackgroundTransparency = 1,
         }, sectionContent)
         local box = N("TextBox", {
             TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, BackgroundColor3 = ELEMENT, FontFace = Library.Font,
@@ -1384,7 +1448,7 @@ local function ApplyElements(Section, sectionContent)
         local Title = Config.Title or Config.Text or "Colorpicker"
 
         local holder = N("Frame", {
-            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, 15), Name = "colorpicker", BackgroundTransparency = 1, Active = false,
+            BackgroundColor3 = WHITE, Size = UDim2.new(1, 0, 0, S_SQUARE), Name = "colorpicker", BackgroundTransparency = 1, Active = false,
         }, sectionContent)
         N("TextLabel", {
             TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1, FontFace = Library.Font,
@@ -1392,8 +1456,8 @@ local function ApplyElements(Section, sectionContent)
         }, holder)
 
         local square = N("Frame", {
-            BackgroundColor3 = Config.Default or WHITE, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(1, -15, 0.5, 0),
-            Size = UDim2.new(0, 15, 0, 15), Name = "square", Active = true,
+            BackgroundColor3 = Config.Default or WHITE, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(1, -S_SQUARE, 0.5, 0),
+            Size = UDim2.new(0, S_SQUARE, 0, S_SQUARE), Name = "square", Active = true,
         }, holder)
         Corner(square, 5)
         Stroke(square, OUTLINE)
@@ -1439,7 +1503,7 @@ local function ApplyElements(Section, sectionContent)
         local Info = a
         if type(a) == "string" then Info = { Text = a, Func = b } end
 
-        local row = N("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), Name = "buttonrow" }, sectionContent)
+        local row = N("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, H_BUTTON), Name = "buttonrow" }, sectionContent)
         N("UIListLayout", {
             Padding = UDim.new(0, 5), FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder,
             HorizontalFlex = Enum.UIFlexAlignment.Fill,
@@ -1513,14 +1577,14 @@ local function ApplyElements(Section, sectionContent)
 
         local nameBox = N("TextBox", {
             BackgroundColor3 = ELEMENT, FontFace = Library.Font, TextColor3 = WHITE, TextSize = 14, ClearTextOnFocus = false,
-            PlaceholderText = "Config name...", Text = "", Size = UDim2.new(1, 0, 0, 20), TextXAlignment = Enum.TextXAlignment.Left,
+            PlaceholderText = "Config name...", Text = "", Size = UDim2.new(1, 0, 0, H_BUTTON), TextXAlignment = Enum.TextXAlignment.Left,
         }, manager)
         Corner(nameBox, 4)
         Stroke(nameBox, OUTLINE)
         N("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }, nameBox)
 
         local function MakeRow()
-            local row = N("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20) }, manager)
+            local row = N("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, H_BUTTON) }, manager)
             N("UIListLayout", {
                 Padding = UDim.new(0, 5), FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder,
                 HorizontalFlex = Enum.UIFlexAlignment.Fill,
@@ -1649,10 +1713,38 @@ do
         for Index, Value in pairs(Data or {}) do Window[Index] = Value end
         Library.MainWindow = Window
 
+        -- the window sits inside a scaler so it always fits the screen (phones, small windows)
+        local BaseSize = Window.Size or UDim2.new(0, 650, 0, 450)
+        local WindowScale = 1
+        local scaler = N("Frame", {
+            BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Position = UDim2.fromScale(0, 0), Name = "scaler",
+        }, Library.Holder)
+        local scaleObj = N("UIScale", { Scale = 1 }, scaler)
+
+        local function UpdateScale()
+            local vs = Library.Holder.AbsoluteSize
+            if vs.X <= 0 or vs.Y <= 0 then
+                local cam = workspace.CurrentCamera
+                vs = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+            end
+            local margin = IsMobile and 12 or 40
+            local bw, bh = BaseSize.X.Offset, BaseSize.Y.Offset
+            local s = Window.MaxScale or 1
+            if bw > 0 then s = math.min(s, (vs.X - margin) / bw) end
+            if bh > 0 then s = math.min(s, (vs.Y - margin) / bh) end
+            s = math.clamp(s, 0.35, 3)
+            WindowScale = s
+            scaleObj.Scale = s
+            scaler.Size = UDim2.fromScale(1 / s, 1 / s)
+        end
+        UpdateScale()
+        Library:Connect(Library.Holder:GetPropertyChangedSignal("AbsoluteSize"), UpdateScale)
+        function Window.UpdateScale(self) UpdateScale() end
+
         local main = N("Frame", {
             BackgroundColor3 = Color3.fromRGB(21, 21, 22), AnchorPoint = Vector2.new(0.5, 0.5),
-            Size = Window.Size or UDim2.new(0, 650, 0, 450), Position = UDim2.new(0.5, 0, 0.5, 0), Name = "window",
-        }, Library.Holder)
+            Size = BaseSize, Position = UDim2.new(0.5, 0, 0.5, 0), Name = "window",
+        }, scaler)
         local windowUiStrok1 = Stroke(main, Color3.fromRGB(61, 61, 61))
         Corner(main, 10)
 
@@ -1697,35 +1789,39 @@ do
 
         do
             local Dragging = false
-            local DragStart, StartPos
+            local DragStart, StartPos, DragInput
 
             Library:Connect(UserInputService.InputBegan, function(Input)
                 if not IsPress(Input) then return end
-                if not IsMouseOverFrame(top) then return end
+                if not IsMouseOverFrame(top, Input) then return end
                 for _, Child in pairs(Library.Holder:GetChildren()) do
-                    if Child:IsA("Frame") and Child.Name == "colorpickerPopup" and Child.Visible and IsMouseOverFrame(Child) then
+                    if Child:IsA("Frame") and Child.Name == "colorpickerPopup" and Child.Visible and IsMouseOverFrame(Child, Input) then
                         return
                     end
                 end
                 Dragging = true
+                DragInput = Input
                 DragStart = Input.Position
                 StartPos = main.Position
                 Library:Tween({ Color = Color3.fromRGB(80, 80, 80) }, nil, windowUiStrok1)
             end)
 
             Library:Connect(UserInputService.InputChanged, function(Input)
-                if Dragging and (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch) then
-                    local Delta = Input.Position - DragStart
-                    local TargetPos = UDim2.new(
-                        StartPos.X.Scale, StartPos.X.Offset + Delta.X,
-                        StartPos.Y.Scale, StartPos.Y.Offset + Delta.Y
-                    )
-                    Library:Tween({ Position = TargetPos }, DragInfo, main)
-                end
+                if not Dragging or not IsMove(Input) then return end
+                if Input.UserInputType == Enum.UserInputType.Touch and Input ~= DragInput then return end
+                -- offsets inside the scaler are in scaled units
+                local Delta = (Input.Position - DragStart) / WindowScale
+                local TargetPos = UDim2.new(
+                    StartPos.X.Scale, StartPos.X.Offset + Delta.X,
+                    StartPos.Y.Scale, StartPos.Y.Offset + Delta.Y
+                )
+                Library:Tween({ Position = TargetPos }, DragInfo, main)
             end)
 
             Library:Connect(UserInputService.InputEnded, function(Input)
-                if IsPress(Input) then
+                if not IsPress(Input) then return end
+                if Input.UserInputType == Enum.UserInputType.Touch and Input ~= DragInput then return end
+                if Dragging then
                     Dragging = false
                     Library:Tween({ Color = Color3.fromRGB(61, 61, 61) }, nil, windowUiStrok1)
                 end
@@ -1753,6 +1849,53 @@ do
             if self.Watermark then self.Watermark.Active = Value end
         end
         function Window.Toggle(self) self:SetVisible(not self.Open) end
+
+        -- Floating open/close button (phones have no keyboard to press the menu key).
+        -- Tap = show/hide the UI, hold and drag = move the button.
+        -- Window:Create options: MobileButton = true/false (default: true on touch-only devices).
+        do
+            local ShowButton = Window.MobileButton
+            if ShowButton == nil then ShowButton = IsMobile end
+
+            local btn = N("Frame", {
+                BackgroundColor3 = Color3.fromRGB(20, 20, 21), Size = UDim2.new(0, 46, 0, 46),
+                Position = UDim2.new(1, -62, 0.35, 0), Name = "mobileToggle", Active = true, ZIndex = 50, Visible = ShowButton and true or false,
+            }, Library.Holder)
+            Corner(btn, 23)
+            Stroke(btn, Color3.fromRGB(61, 61, 61))
+            N("ImageLabel", {
+                BackgroundTransparency = 1, Image = Window.Logo, AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 30, 0, 30), ZIndex = 51, Name = "logo",
+            }, btn)
+            Library.MobileButton = btn
+
+            local btnDown, btnInput, btnMoved = false, nil, false
+            local btnStartIn, btnStartPos
+
+            Library:Connect(btn.InputBegan, function(Input)
+                if not IsPress(Input) then return end
+                btnDown, btnInput, btnMoved = true, Input, false
+                btnStartIn = Input.Position
+                btnStartPos = btn.Position
+            end)
+            Library:Connect(UserInputService.InputChanged, function(Input)
+                if not btnDown or not IsMove(Input) then return end
+                if Input.UserInputType == Enum.UserInputType.Touch and Input ~= btnInput then return end
+                local d = Input.Position - btnStartIn
+                if d.Magnitude > 8 then btnMoved = true end
+                if btnMoved then
+                    btn.Position = UDim2.new(btnStartPos.X.Scale, btnStartPos.X.Offset + d.X, btnStartPos.Y.Scale, btnStartPos.Y.Offset + d.Y)
+                end
+            end)
+            Library:Connect(UserInputService.InputEnded, function(Input)
+                if not btnDown or not IsPress(Input) then return end
+                if Input.UserInputType == Enum.UserInputType.Touch and Input ~= btnInput then return end
+                btnDown = false
+                if not btnMoved then Window:SetVisible(not Window.Open) end
+            end)
+
+            function Library.SetMobileButtonVisible(Self, Value) btn.Visible = Value and true or false end
+        end
         function Library.Toggle(Self) Window:SetVisible(not Window.Open) end
 
         function Library.ClosePopups(Self)
@@ -1796,19 +1939,21 @@ do
 
         do
             local wmDragging = false
-            local wmDragStart, wmStartPos
+            local wmDragStart, wmStartPos, wmInput
 
             Library:Connect(UserInputService.InputBegan, function(Input)
                 if not Window.Open then return end
                 if not IsPress(Input) then return end
-                if not IsMouseOverFrame(watermark) then return end
+                if not IsMouseOverFrame(watermark, Input) then return end
                 wmDragging = true
+                wmInput = Input
                 wmDragStart = Input.Position
                 wmStartPos = watermark.Position
             end)
             Library:Connect(UserInputService.InputChanged, function(Input)
                 if not wmDragging then return end
-                if Input.UserInputType ~= Enum.UserInputType.MouseMovement and Input.UserInputType ~= Enum.UserInputType.Touch then return end
+                if not IsMove(Input) then return end
+                if Input.UserInputType == Enum.UserInputType.Touch and Input ~= wmInput then return end
                 local Delta = Input.Position - wmDragStart
                 local TargetPos = UDim2.new(
                     wmStartPos.X.Scale, wmStartPos.X.Offset + Delta.X,
@@ -1817,7 +1962,9 @@ do
                 Library:Tween({ Position = TargetPos }, DragInfo, watermark)
             end)
             Library:Connect(UserInputService.InputEnded, function(Input)
-                if IsPress(Input) then wmDragging = false end
+                if not IsPress(Input) then return end
+                if Input.UserInputType == Enum.UserInputType.Touch and Input ~= wmInput then return end
+                wmDragging = false
             end)
         end
 
@@ -2044,7 +2191,7 @@ do
 
             local tabButton = N("TextButton", {
                 TextSize = 14, AutoButtonColor = false, TextColor3 = Color3.fromRGB(0, 0, 0), BackgroundColor3 = Color3.fromRGB(25, 25, 27),
-                FontFace = Library.FontBold, BackgroundTransparency = 1, Size = UDim2.new(0, 200, 0, 30), Text = "", Name = "tab",
+                FontFace = Library.FontBold, BackgroundTransparency = 1, Size = UDim2.new(0, 200, 0, H_TAB), Text = "", Name = "tab",
             }, tabs)
             local tabButtonCorner = Corner(tabButton, 0)
             tabButtonCorner.BottomLeftRadius = UDim.new(0, 0)
@@ -2220,7 +2367,7 @@ do
                         Name = "maincontent", BackgroundTransparency = 1,
                     }, section)
                     Pad(sectionContent, 26, 6, 6, 6)
-                    N("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, sectionContent)
+                    N("UIListLayout", { Padding = UDim.new(0, PAD_ROWS), SortOrder = Enum.SortOrder.LayoutOrder }, sectionContent)
 
                     Section.Instance = section
                     Section.Content = sectionContent
