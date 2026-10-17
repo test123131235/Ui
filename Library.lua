@@ -5,6 +5,11 @@
     On top of it: Linoria-style API (CreateWindow, Toggles/Options, Idx + Info elements,
     Toggle:AddColorPicker / AddKeyPicker, AddButton, AddLabel, Groupbox aliases) so SaveManager works.
     Custom cursor (rbxassetid://89116795437925) is restored to the default Roblox cursor on unload.
+
+    MOBILE SCALING (new):
+      Library:CreateWindow({ ScreenFill = 0.55 })  -- max share of the screen the window may use (default 0.65 mobile / 0.95 desktop)
+      Library:CreateWindow({ Scale = 0.5 })        -- hard override of the scale
+      Window:SetScale(0.5)                         -- change at runtime
 ]]
 
 local cRF = cloneref or function(Object) return Object end
@@ -1727,12 +1732,21 @@ do
                 local cam = workspace.CurrentCamera
                 vs = cam and cam.ViewportSize or Vector2.new(1920, 1080)
             end
-            local margin = IsMobile and 12 or 40
-            local bw, bh = BaseSize.X.Offset, BaseSize.Y.Offset
-            local s = Window.MaxScale or 1
-            if bw > 0 then s = math.min(s, (vs.X - margin) / bw) end
-            if bh > 0 then s = math.min(s, (vs.Y - margin) / bh) end
-            s = math.clamp(s, 0.35, 3)
+
+            local s
+            if Window.Scale then
+                -- manual override: Window.Scale = 0.5 in the window options, or Window:SetScale(0.5)
+                s = Window.Scale
+            else
+                -- fraction of the screen the window is allowed to take up
+                local Fill = Window.ScreenFill or (IsMobile and 0.65 or 0.95)
+                local bw, bh = BaseSize.X.Offset, BaseSize.Y.Offset
+                s = Window.MaxScale or 1
+                if bw > 0 then s = math.min(s, (vs.X * Fill) / bw) end
+                if bh > 0 then s = math.min(s, (vs.Y * Fill) / bh) end
+            end
+
+            s = math.clamp(s, 0.3, 3)
             WindowScale = s
             scaleObj.Scale = s
             scaler.Size = UDim2.fromScale(1 / s, 1 / s)
@@ -1740,6 +1754,7 @@ do
         UpdateScale()
         Library:Connect(Library.Holder:GetPropertyChangedSignal("AbsoluteSize"), UpdateScale)
         function Window.UpdateScale(self) UpdateScale() end
+        function Window.SetScale(self, Value) self.Scale = Value; UpdateScale() end
 
         local main = N("Frame", {
             BackgroundColor3 = Color3.fromRGB(21, 21, 22), AnchorPoint = Vector2.new(0.5, 0.5),
@@ -2052,8 +2067,6 @@ do
                 Name = "customPill", BackgroundTransparency = 1,
             }, top)
             Corner(customPill, 5)
-
-            local function Dark(c) return Color3.new(math.max(0, c.R - 0.27), math.max(0, c.G - 0.27), math.max(0, c.B - 0.27)) end
 
             local pillLogo = N("ImageLabel", {
                 BackgroundColor3 = WHITE, Image = Pill.Logo, Size = UDim2.new(0, 35, 0, 35), BackgroundTransparency = 1,
