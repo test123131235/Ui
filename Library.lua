@@ -1,9 +1,10 @@
 --[[
-	Feral UI Library  v1.0.0
+	Feral UI Library  v1.0.1
 	Load it with:
 		local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/<user>/<repo>/main/Library.lua"))()
 
-	See README.md for the full API and Example.lua for a showcase of every element.
+	v1.0.1: window / watermark / notification anchor are fully draggable,
+	        window remembers its position, and is clamped on screen.
 ]]
 
 --// Services
@@ -31,11 +32,11 @@ local HasFS = (isfolder and makefolder and isfile and readfile and writefile) ~=
 
 --// Library table
 local Library = {
-	Version = "1.0.0",
+	Version = "1.0.1",
 
-	Flags = {},       -- [Flag] = current value of every element that has a Flag
-	SetFlags = {},    -- [Flag] = function(Value) used by the config system
-	Keybind = Enum.KeyCode.X, -- key that opens / closes the menu
+	Flags = {},
+	SetFlags = {},
+	Keybind = Enum.KeyCode.X,
 
 	Directory = "feral",
 	Folders = { Assets = "Assets", Configs = "Configs" },
@@ -65,7 +66,7 @@ local Library = {
 		ToggleOn = Color3.fromRGB(29, 146, 234),
 	},
 
-	-- If clicks on dropdowns / colorpickers feel shifted vertically on your executor,
+	-- If clicks on dropdowns / colorpickers / sliders feel shifted vertically on your executor,
 	-- set this to Vector2.new(0, -36) (or whatever your GuiInset is).
 	MouseOffset = Vector2.new(0, 0),
 
@@ -83,7 +84,7 @@ local Library = {
 	AnchorFrame = nil,
 
 	ActivePopup = nil,
-	Listening = false, -- true while a Keybind element waits for a key
+	Listening = false,
 	MainWindow = nil,
 	Initialized = false,
 	Unloaded = false,
@@ -370,6 +371,8 @@ local function MakeLabel(Parent, Properties)
 	return Label
 end
 
+--- Makes `Target` draggable by grabbing `Handle`.
+--- Options: Condition() -> bool, OnStart(), OnMove(Position), OnEnd(FinalPosition), Clamp (keep handle on screen)
 local function Draggable(Target, Handle, Options)
 	Options = Options or {}
 
@@ -377,16 +380,24 @@ local function Draggable(Target, Handle, Options)
 	local DragStart, StartPosition
 	local DragInfo = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-	Library:Connect(UserInputService.InputBegan, function(Input)
+	-- Handle.InputBegan works for mouse AND touch with no coordinate math,
+	-- and is automatically blocked by any Active GUI sitting above the handle.
+	Handle.Active = true
+
+	local function Compute(Input)
+		local Delta = Input.Position - DragStart
+		return UDim2.new(
+			StartPosition.X.Scale, StartPosition.X.Offset + Delta.X,
+			StartPosition.Y.Scale, StartPosition.Y.Offset + Delta.Y
+		)
+	end
+
+	Library:Connect(Handle.InputBegan, function(Input)
 		if not IsClick(Input) then
 			return
 		end
 
 		if Options.Condition and not Options.Condition() then
-			return
-		end
-
-		if not Library:IsOver(Handle) then
 			return
 		end
 
@@ -404,12 +415,7 @@ local function Draggable(Target, Handle, Options)
 			return
 		end
 
-		local Delta = Input.Position - DragStart
-		local Position = UDim2.new(
-			StartPosition.X.Scale, StartPosition.X.Offset + Delta.X,
-			StartPosition.Y.Scale, StartPosition.Y.Offset + Delta.Y
-		)
-
+		local Position = Compute(Input)
 		Tween(Target, { Position = Position }, DragInfo)
 
 		if Options.OnMove then
@@ -418,12 +424,45 @@ local function Draggable(Target, Handle, Options)
 	end)
 
 	Library:Connect(UserInputService.InputEnded, function(Input)
-		if Dragging and IsClick(Input) then
-			Dragging = false
+		if not (Dragging and IsClick(Input)) then
+			return
+		end
 
-			if Options.OnEnd then
-				Options.OnEnd()
+		Dragging = false
+
+		local Final = Compute(Input)
+
+		if Options.Clamp then
+			task.wait(0.1) -- let the drag tween settle so AbsolutePosition is accurate
+
+			local Camera = workspace.CurrentCamera
+			local Viewport = Camera and Camera.ViewportSize or Vector2.new(1920, 1080)
+			local Pos, Size = Handle.AbsolutePosition, Handle.AbsoluteSize
+			local DX, DY = 0, 0
+
+			if Pos.X + Size.X < 60 then
+				DX = 60 - (Pos.X + Size.X)
+			elseif Pos.X > Viewport.X - 60 then
+				DX = (Viewport.X - 60) - Pos.X
 			end
+
+			if Pos.Y < 0 then
+				DY = -Pos.Y
+			elseif Pos.Y > Viewport.Y - 30 then
+				DY = (Viewport.Y - 30) - Pos.Y
+			end
+
+			if DX ~= 0 or DY ~= 0 then
+				Final = UDim2.new(
+					Final.X.Scale, Final.X.Offset + DX,
+					Final.Y.Scale, Final.Y.Offset + DY
+				)
+				Tween(Target, { Position = Final })
+			end
+		end
+
+		if Options.OnEnd then
+			Options.OnEnd(Final)
 		end
 	end)
 end
@@ -1998,8 +2037,6 @@ function SectionMethods:AddKeybind(Config)
 
 		if Keybind.Mode == "Toggle" then
 			Keybind.State = not Keybind.State
-		elseif Keybind.Mode == "Hold" then
-			Keybind.State = true
 		else
 			Keybind.State = true
 		end
@@ -2299,16 +2336,21 @@ function Library:Window(Config)
 		HubLogo.Image = Image
 	end
 
-	--// Dragging (top bar)
+	--// Dragging (grab the top bar). Remembers position + keeps it on screen.
 	Draggable(Main, Top, {
+		Clamp = true,
 		Condition = function()
 			return Window.Open and not Library:IsOverPopup()
 		end,
 		OnStart = function()
 			Tween(MainStroke, { Color = Color3.fromRGB(80, 80, 80) })
 		end,
-		OnEnd = function()
+		OnEnd = function(Final)
 			Tween(MainStroke, { Color = Library.Theme.WindowOutline })
+
+			-- remember where the user put it, so close/open returns here
+			Window.OpenPosition = Final
+			Window.ClosedPosition = UDim2.new(Final.X.Scale, Final.X.Offset, 1.4, 0)
 		end,
 	})
 
@@ -2392,6 +2434,7 @@ function Library:Window(Config)
 	})
 
 	Draggable(Watermark, Watermark, {
+		Clamp = true,
 		Condition = function()
 			return Window.Open
 		end,
