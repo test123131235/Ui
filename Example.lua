@@ -1,4 +1,13 @@
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/test123131235/Ui/refs/heads/main/Library.lua"))()
+--[[
+	Feral UI - Example
+	Showcases every element the library has.
+
+	1. Upload Library.lua (and this file) to your GitHub repo.
+	2. Point `Repo` below at your raw URL:  https://raw.githubusercontent.com/<user>/<repo>/<branch>/
+]]
+
+local Repo = "https://raw.githubusercontent.com/test123131235/Ui/main/"
+local Library = loadstring(game:HttpGet(Repo .. "Library.lua"))()
 
 --// Optional: tweak the library before building the window
 Library.Directory = "feral_example"      -- folder used for configs / fonts
